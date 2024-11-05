@@ -1,7 +1,93 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QPushButton, QLineEdit, QLabel
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QPushButton, QLineEdit, QLabel, QDialog, QListWidget,
+                             QHBoxLayout, QVBoxLayout, QStyle, QScrollArea)
+from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QFont, QIcon
 from PyQt5 import uic
 import math
+
+
+class HistoryDialog(QDialog):
+    def __init__(self, history, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Calculation History")
+        self.setMinimumSize(400, 500)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f0f0f0;
+                border-radius: 10px;
+            }
+            QListWidget {
+                background-color: white;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                padding: 5px;
+                font-size: 14px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+            }
+            QListWidget::item:hover {
+                background-color: #f5f5f5;
+            }
+            QPushButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 10px;
+            }
+        """)
+
+        # Create layout
+        layout = QVBoxLayout()
+
+        # Add header
+        header_label = QLabel("Calculation History")
+        header_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(header_label)
+
+        # Create list widget for history
+        self.history_list = QListWidget()
+        self.history_list.setAlternatingRowColors(True)
+        self.history_list.setSpacing(2)
+
+        # Add history items
+        for item in reversed(history):
+            self.history_list.addItem(item)
+
+        layout.addWidget(self.history_list)
+
+        # Add buttons
+        button_layout = QHBoxLayout()
+
+        clear_button = QPushButton("Clear History")
+        clear_button.clicked.connect(self.clear_history)
+
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+
+        button_layout.addWidget(clear_button)
+        button_layout.addWidget(close_button)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def clear_history(self):
+        self.history_list.clear()
+        self.parent().history.clear()
 
 
 class ScientificCalculator(QMainWindow):
@@ -16,6 +102,36 @@ class ScientificCalculator(QMainWindow):
         self.result = 0
         self.pending_operation = None
         self.last_button_was_operator = False
+        self.history = []  # List to store calculation history
+
+        # Set window style
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f0f0;
+            }
+            QLineEdit {
+                background-color: white;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 16px;
+            }
+            QPushButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+            QLabel {
+                color: #666;
+                font-size: 14px;
+            }
+        """)
 
         # Connect buttons
         self.connect_number_buttons()
@@ -63,6 +179,14 @@ class ScientificCalculator(QMainWindow):
         self.buttonBackspace.clicked.connect(self.backspace)
         self.buttonHistory.clicked.connect(self.show_history)
 
+    def add_to_history(self, expression, result):
+        """Add calculation to history"""
+        history_entry = f"{expression} = {result}"
+        self.history.append(history_entry)
+        # Keep only the last 20 calculations
+        if len(self.history) > 20:
+            self.history.pop(0)
+
     def number_pressed(self, number):
         """Handle number button presses"""
         if self.last_button_was_operator:
@@ -92,31 +216,41 @@ class ScientificCalculator(QMainWindow):
             return
 
         current_value = float(self.current_input)
+        expression = f"{self.result} {self.pending_operation} {current_value}"
 
-        if self.pending_operation == '+':
-            self.result += current_value
-        elif self.pending_operation == '-':
-            self.result -= current_value
-        elif self.pending_operation == '×':
-            self.result *= current_value
-        elif self.pending_operation == '÷':
-            if current_value == 0:
-                self.display.setText('Error')
-                return
-            self.result /= current_value
-        elif self.pending_operation == '^':
-            self.result = pow(self.result, current_value)
+        try:
+            if self.pending_operation == '+':
+                self.result += current_value
+            elif self.pending_operation == '-':
+                self.result -= current_value
+            elif self.pending_operation == '×':
+                self.result *= current_value
+            elif self.pending_operation == '÷':
+                if current_value == 0:
+                    raise ZeroDivisionError
+                self.result /= current_value
+            elif self.pending_operation == '^':
+                self.result = pow(self.result, current_value)
 
-        self.processLabel.setText(f"{self.result} {self.pending_operation} {current_value} =")
-        self.display.setText(str(self.result))
-        self.current_input = str(self.result)
-        self.pending_operation = None
+            # Add to history
+            self.add_to_history(expression, self.result)
+
+            self.processLabel.setText(f"{expression} =")
+            self.display.setText(str(self.result))
+            self.current_input = str(self.result)
+            self.pending_operation = None
+
+        except ZeroDivisionError:
+            self.display.setText('Error: Division by zero')
+        except Exception as e:
+            self.display.setText('Error')
 
     def scientific_operation(self, operation):
         """Handle scientific operations"""
         try:
             if self.current_input:
                 value = float(self.current_input)
+                expression = f"{operation}({value})"
 
                 if operation == 'sin':
                     result = math.sin(math.radians(value))
@@ -132,12 +266,18 @@ class ScientificCalculator(QMainWindow):
                     result = math.exp(value)
                 elif operation == 'square':
                     result = value ** 2
+                    expression = f"({value})²"
                 elif operation == 'sqrt':
                     result = math.sqrt(value)
+                    expression = f"√({value})"
                 elif operation == 'factorial':
                     result = math.factorial(int(value))
+                    expression = f"{value}!"
 
-                self.processLabel.setText(f"{operation}({value}) =")
+                # Add to history
+                self.add_to_history(expression, result)
+
+                self.processLabel.setText(f"{expression} =")
                 self.display.setText(str(result))
                 self.current_input = str(result)
                 self.result = result
@@ -173,9 +313,9 @@ class ScientificCalculator(QMainWindow):
         self.current_input = current[:-1]
 
     def show_history(self):
-        """Shows calculation history"""
-        # Implement history functionality here
-        pass
+        """Shows calculation history in a custom dialog"""
+        dialog = HistoryDialog(self.history, self)
+        dialog.exec_()
 
 
 def main():
